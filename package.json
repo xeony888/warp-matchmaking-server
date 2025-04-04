@@ -1,0 +1,25 @@
+{
+  "name": "rust-matchmaking-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "ts-node test/test.ts",
+    "start": "ts-node test/test.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.8.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}
