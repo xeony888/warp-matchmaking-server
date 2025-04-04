@@ -8,5 +8,5 @@ pub struct MatchRequest {
 
 #[derive(Deserialize)]
 pub struct JoinQuery {
-    pub id: u64,
+    pub id: u32,
 }

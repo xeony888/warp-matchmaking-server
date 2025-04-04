@@ -20,3 +20,12 @@ impl Reject for InvalidInputError {}
 pub struct CannotJoinMatchError;
 
 impl Reject for CannotJoinMatchError {}
+
+#[derive(Debug)]
+pub struct IdGenerationError;
+impl Reject for IdGenerationError {}
+
+#[derive(Debug)]
+pub struct CannotBroadcastError;
+
+impl Reject for CannotBroadcastError {}

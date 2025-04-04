@@ -1,5 +1,6 @@
 import axios from "axios";
 import { Match } from "./types";
+import { EventSource } from "eventsource"
 import assert, { deepEqual } from "assert";
 
 axios.defaults.validateStatus = (status) => {
@@ -40,6 +41,21 @@ class Client {
         assert(gameGame_type === game_type, "Invalid game type");
         return response.data as Match;
     }
+    async openEventSource(id: number): Promise<EventSource> {
+        return new Promise<EventSource>((resolve) => {
+            const es = new EventSource(`${URL}/updates?id=${id}`)
+            es.onmessage = (event: any) => {
+                console.log(`Client ${this.token} Received: ` + event.data);
+            }
+            es.onerror = (err: any) => {
+                console.error(`Client ${this.token} Error:`, err);
+            };
+            es.onopen = (event: any) => {
+                console.log("Event source opened: ", JSON.stringify(event));
+                resolve(es);
+            }
+        })
+    }
     async joinGame(id: number): Promise<Match> {
         const response = await axios.post(`${URL}/join?id=${id}`, null,
             {
@@ -78,18 +94,27 @@ class Client {
         assert(response.status === 200, "Invalid response status");
         return response.data;
     }
+    async readyUp(id: number): Promise<boolean> {
+        const response = await axios.post(`${URL}/ready?id=${id}`, null,
+            {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${this.token}`
+                }
+            }
+        )
+        assert(response.status === 200, "Invalid response status");
+        return true;
+    }
 }
 async function main() {
     const client1 = new Client();
     const client2 = new Client();
 
     const match = await client1.createGame();
-    console.log({ match });
-    const match2 = await client2.joinGame(match.id);
-    const match3 = await client1.getGame(match.id);
-    console.log({ match, match2, match3 });
-    deepEqual(match3, match2, "Matches not equal");
-    const matches = await client2.getGames();
-    console.log(matches);
+    const es = await client1.openEventSource(match.id);
+    await client2.joinGame(match.id);
+    const es2 = await client2.openEventSource(match.id);
+    await Promise.all([client1.readyUp(match.id), client2.readyUp(match.id)]);
 }
 main().then(() => console.log("DONE"));

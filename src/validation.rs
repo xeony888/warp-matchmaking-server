@@ -10,7 +10,6 @@ pub fn validate_prize_amount(amount: &u32) -> bool {
     return VALID_PRIZE_AMOUNTS.contains(amount);
 }
 pub fn validate_can_join_match(m: &Match) -> bool {
-    println!("Amount: {}", match_type_to_min_players(&m.game_type));
     return m.players.len() < match_type_to_max_players(&m.game_type);
 }
 fn match_type_to_max_players(match_type: &String) -> usize {

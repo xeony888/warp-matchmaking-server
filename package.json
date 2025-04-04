@@ -15,6 +15,7 @@
   "description": "",
   "dependencies": {
     "axios": "^1.8.4",
+    "eventsource": "^3.0.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2",
     "ws": "^8.18.1"
