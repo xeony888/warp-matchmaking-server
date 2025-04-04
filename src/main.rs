@@ -10,6 +10,7 @@ use std::env;
 use std::net::Ipv4Addr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, sync::Arc};
+use tokio::process::Command;
 use tokio::sync::{watch, RwLock};
 use user::{with_user, User};
 use validation::{validate_can_join_match, validate_game_not_started, validate_game_type, validate_prize_amount, validate_user_in_game};
@@ -167,6 +168,24 @@ async fn ready_handler(matches: Matches, query: JoinQuery, user: User) -> Result
     game.state_channel
         .send((game.state.clone(), game.ready.clone(), game.players.clone()))
         .map_err(|_| warp::reject::custom(CannotBroadcastError))?;
+    if all_ready {
+        let game_id = query.id.clone();
+        tokio::spawn(async move {
+            let result = run_game_process(&game_id).await;
+            match result {
+                Ok(exit_code) => {
+                    if exit_code == 1000 {
+                    } else if exit_code == 1001 {
+                    } else if exit_code == 1002 {
+                    } else {
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to run game process: {:?}", e);
+                }
+            }
+        });
+    }
     return Ok(warp::reply::with_status("reply", StatusCode::OK));
 }
 async fn match_ready_updates(matches: Matches, query: JoinQuery) -> Result<impl Reply, Rejection> {
@@ -191,7 +210,13 @@ async fn match_ready_updates(matches: Matches, query: JoinQuery) -> Result<impl 
     };
     Ok(sse::reply(stream))
 }
+async fn run_game_process(game_id: &u32) -> Result<i32, std::io::Error> {
+    // Example: Running a command as a process
+    let mut child = Command::new("your-game-command").arg(game_id.to_string()).spawn()?;
 
+    let exit_status = child.wait().await?;
+    Ok(exit_status.code().unwrap_or(1000)) // Return the exit code, or -1 on error
+}
 async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
     if err.is_not_found() {
         println!("Not found");

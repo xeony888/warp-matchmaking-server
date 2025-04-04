@@ -1,3 +1,4 @@
 /target
+/game-simulation/target
 .env
 node_modules
