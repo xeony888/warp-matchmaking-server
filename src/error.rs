@@ -29,3 +29,8 @@ impl Reject for IdGenerationError {}
 pub struct CannotBroadcastError;
 
 impl Reject for CannotBroadcastError {}
+
+#[derive(Debug)]
+pub struct NoAvailablePorts;
+
+impl Reject for NoAvailablePorts {}

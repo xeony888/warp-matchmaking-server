@@ -1,6 +1,7 @@
 use async_stream::stream;
 use dotenvy::dotenv;
-use error::{CannotBroadcastError, CannotJoinMatchError, IdGenerationError, InvalidInputError, UnauthorizedError};
+use error::{CannotBroadcastError, CannotJoinMatchError, IdGenerationError, InvalidInputError, NoAvailablePorts, UnauthorizedError};
+use futures::lock::Mutex;
 use getrandom;
 use info::get_max_players_for_game;
 use request::{JoinQuery, MatchRequest};
@@ -13,6 +14,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::process::Command;
 use tokio::sync::{watch, RwLock};
 use user::{with_user, User};
+use utils::{game_type_to_path, NumberPool, SharedNumberPool};
 use validation::{validate_can_join_match, validate_game_not_started, validate_game_type, validate_prize_amount, validate_user_in_game};
 use warp::filters::sse;
 use warp::{http::StatusCode, reject::Rejection, reply::Reply, Filter};
@@ -20,6 +22,7 @@ pub mod error;
 pub mod info;
 pub mod request;
 pub mod user;
+pub mod utils;
 pub mod validation;
 use crate::error::NotFoundError;
 
@@ -34,13 +37,15 @@ pub enum MatchState {
 pub struct Match {
     pub id: u32,
     pub players: Vec<String>,
+    pub player_tokens: Vec<String>,
     pub ready: Vec<bool>,
     pub prize: u32,
     pub game_type: String,
     pub expiry_time: u64,
+    pub port: u32,
     pub state: MatchState,
     #[serde(skip)]
-    pub state_channel: watch::Sender<(MatchState, Vec<bool>, Vec<String>)>,
+    pub state_channel: watch::Sender<(MatchState, Vec<bool>, Vec<String>, u32)>,
 }
 type Matches = Arc<RwLock<HashMap<u32, Arc<RwLock<Match>>>>>;
 
@@ -68,7 +73,7 @@ async fn get_match_handler(matches: Matches, query: JoinQuery, user: User) -> Re
         Err(warp::reject::custom(NotFoundError))
     }
 }
-async fn create_match_handler(matches: Matches, new_match: MatchRequest, user: User) -> Result<impl Reply, Rejection> {
+async fn create_match_handler(matches: Matches, port_pool: SharedNumberPool, new_match: MatchRequest, user: User) -> Result<impl Reply, Rejection> {
     let mut matches_write = matches.write().await;
     let mut id: u32;
     loop {
@@ -86,16 +91,22 @@ async fn create_match_handler(matches: Matches, new_match: MatchRequest, user: U
     if !validate_game_type(&new_match.game_type) || !validate_prize_amount(&new_match.prize) {
         return Err(warp::reject::custom(InvalidInputError));
     }
+    let port = match port_pool.lock().await.get() {
+        Some(p) => p,
+        None => return Err(warp::reject::custom(NoAvailablePorts)),
+    };
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let (state_tx, _) = watch::channel((MatchState::OPEN, vec![false], vec![user.username.clone()]));
+    let (state_tx, _) = watch::channel((MatchState::OPEN, vec![false], vec![user.username.clone()], port));
     let new_match = Match {
         id,
         players: vec![user.username],
+        player_tokens: vec![user.auth_token],
         ready: vec![false],
         prize: new_match.prize,
         game_type: new_match.game_type,
         expiry_time: now + GAME_EXPIRY_TIME_SECS,
         state_channel: state_tx,
+        port,
         state: MatchState::OPEN,
     };
     println!("Inserting with id: {}", id);
@@ -111,13 +122,19 @@ async fn join_match_handler(matches: Matches, query: JoinQuery, user: User) -> R
         }
         match_write.players.push(user.username.clone());
         match_write.ready.push(false);
+        match_write.player_tokens.push(user.auth_token.clone());
         let max_players = get_max_players_for_game(&match_write.game_type);
         if match_write.players.len() == max_players {
             match_write.state = MatchState::READYING;
         }
         match_write
             .state_channel
-            .send((match_write.state.clone(), match_write.ready.clone(), match_write.players.clone()))
+            .send((
+                match_write.state.clone(),
+                match_write.ready.clone(),
+                match_write.players.clone(),
+                match_write.port,
+            ))
             .map_err(|err| {
                 println!("{:?}", err);
                 warp::reject::custom(CannotBroadcastError)
@@ -128,7 +145,8 @@ async fn join_match_handler(matches: Matches, query: JoinQuery, user: User) -> R
         Err(warp::reject::custom(NotFoundError))
     }
 }
-async fn cancel_match_handler(matches: Matches, query: JoinQuery, user: User) -> Result<impl Reply, Rejection> {
+async fn cancel_match_handler(matches: Matches, port_pool: SharedNumberPool, query: JoinQuery, user: User) -> Result<impl Reply, Rejection> {
+    // release port back to pool
     let mut matches_write = matches.write().await;
     // validate user in game and game not started
     if let Some(match_data) = matches_write.get(&query.id) {
@@ -166,18 +184,24 @@ async fn ready_handler(matches: Matches, query: JoinQuery, user: User) -> Result
         game.state = MatchState::PLAYING;
     }
     game.state_channel
-        .send((game.state.clone(), game.ready.clone(), game.players.clone()))
+        .send((game.state.clone(), game.ready.clone(), game.players.clone(), game.port))
         .map_err(|_| warp::reject::custom(CannotBroadcastError))?;
     if all_ready {
-        let game_id = query.id.clone();
+        let game_type = game.game_type.clone();
+        let port = game.port.clone();
+        let players = game.players.clone();
+        let player_tokens = game.player_tokens.clone();
+        // check that this does not block and the mutexes claimed earlier are released
         tokio::spawn(async move {
-            let result = run_game_process(&game_id).await;
+            let result = run_game_process(&game_type, port, &players[0], &player_tokens[0], &players[1], &player_tokens[1]).await;
             match result {
                 Ok(exit_code) => {
-                    if exit_code == 1000 {
-                    } else if exit_code == 1001 {
+                    if exit_code == 1001 {
+                        // player 1 won
                     } else if exit_code == 1002 {
+                        // player 2 won
                     } else {
+                        // error occurred, add back balance to both players
                     }
                 }
                 Err(e) => {
@@ -210,10 +234,28 @@ async fn match_ready_updates(matches: Matches, query: JoinQuery) -> Result<impl 
     };
     Ok(sse::reply(stream))
 }
-async fn run_game_process(game_id: &u32) -> Result<i32, std::io::Error> {
+async fn run_game_process(
+    game_type: &String,
+    port: u32,
+    player_1: &String,
+    player_1_token: &String,
+    player_2: &String,
+    player_2_token: &String,
+) -> Result<i32, std::io::Error> {
     // Example: Running a command as a process
-    let mut child = Command::new("your-game-command").arg(game_id.to_string()).spawn()?;
-
+    let path = game_type_to_path(game_type);
+    let formatted = format!("./builds/{path}");
+    println!(
+        "Starting {} game at port {} for players {}, {} with tokens {}, {}",
+        game_type, port, player_1, player_2, player_1_token, player_2_token
+    );
+    let mut child = Command::new(formatted)
+        .arg(format!("-port {}", port))
+        .arg(format!("-username1 {}", player_1))
+        .arg(format!("-player1token {}", player_1_token))
+        .arg(format!("-username2 {}", player_2))
+        .arg(format!("-player2token {}", player_2_token))
+        .spawn()?;
     let exit_status = child.wait().await?;
     Ok(exit_status.code().unwrap_or(1000)) // Return the exit code, or -1 on error
 }
@@ -239,6 +281,9 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
     } else if let Some(_) = err.find::<IdGenerationError>() {
         println!("Id generation failed");
         Ok(warp::reply::with_status("ID generation failed", StatusCode::INTERNAL_SERVER_ERROR))
+    } else if let Some(_) = err.find::<NoAvailablePorts>() {
+        println!("No available ports");
+        Ok(warp::reply::with_status("No available ports", StatusCode::INTERNAL_SERVER_ERROR))
     } else {
         println!("Other error: {:?}", err);
         Ok(warp::reply::with_status("Internal Server Error", StatusCode::INTERNAL_SERVER_ERROR))
@@ -248,8 +293,20 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
 async fn main() {
     dotenv().ok();
     let matches: Matches = Arc::new(RwLock::new(HashMap::new()));
+    let low_port: u32 = env::var("PORT_START")
+        .unwrap_or_else(|_| "30000".to_string())
+        .parse()
+        .expect("Invalid low port");
+    let high_port: u32 = env::var("PORT_END")
+        .unwrap_or_else(|_| "31000".to_string())
+        .parse()
+        .expect("Invalid high port");
+    let port_pool: SharedNumberPool = Arc::new(Mutex::new(NumberPool::new(low_port..high_port)));
     fn with_matches(matches: Matches) -> impl Filter<Extract = (Matches,), Error = std::convert::Infallible> + Clone {
-        warp::any().map(move || matches.clone()) // .clone() just cloned the ref because it is an Arc
+        return warp::any().map(move || matches.clone()); // .clone() just cloned the ref because it is an Arc
+    }
+    fn with_port_pool(port_pool: SharedNumberPool) -> impl Filter<Extract = (SharedNumberPool,), Error = std::convert::Infallible> + Clone {
+        return warp::any().map(move || port_pool.clone());
     }
     let matches_route = warp::path!("matches")
         .and(warp::get())
@@ -265,6 +322,7 @@ async fn main() {
     let create_match_route = warp::path("create")
         .and(warp::post())
         .and(with_matches(matches.clone()))
+        .and(with_port_pool(port_pool.clone()))
         .and(warp::body::json())
         .and(with_user())
         .and_then(create_match_handler);
@@ -277,6 +335,7 @@ async fn main() {
     let cancel_match_route = warp::path("cancel")
         .and(warp::post())
         .and(with_matches(matches.clone()))
+        .and(with_port_pool(port_pool.clone()))
         .and(warp::query::<JoinQuery>())
         .and(with_user())
         .and_then(cancel_match_handler);
