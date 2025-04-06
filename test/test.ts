@@ -2,7 +2,9 @@ import axios from "axios";
 import { Match } from "./types";
 import { EventSource } from "eventsource"
 import assert, { deepEqual } from "assert";
-
+import dotenv from "dotenv";
+import { WebSocket } from "ws";
+dotenv.config();
 axios.defaults.validateStatus = (status) => {
     return true;
 }
@@ -15,16 +17,18 @@ const GAME_TYPES: string[] = ["soccer", "knockout"]
 function pickRandom<T>(arr: T[]): T {
     return arr[Math.floor(Math.random() * arr.length)];
 }
-const URL = "http://localhost:8080"
 class Client {
     token: string
+    url: string;
     constructor() {
         this.token = generateRandomToken();
+        this.url = `http://${process.env.HOST}:${process.env.PORT}`
+        console.log(this.url);
     }
     async createGame(): Promise<Match> {
         const prize = pickRandom(PRIZES)
         const game_type = pickRandom(GAME_TYPES)
-        const response = await axios.post(`${URL}/create`,
+        const response = await axios.post(`${this.url}/create`,
             { prize, game_type },
             {
                 method: "POST",
@@ -42,13 +46,30 @@ class Client {
         return response.data as Match;
     }
     async openEventSource(id: number): Promise<EventSource> {
-        return new Promise<EventSource>((resolve) => {
-            const es = new EventSource(`${URL}/updates?id=${id}`)
+        return new Promise<EventSource>((resolve, reject) => {
+            const es = new EventSource(`${this.url}/updates?id=${id}`)
             es.onmessage = (event: any) => {
+                const eventData = JSON.parse(event.data);
+                console.log(eventData);
+                const state = eventData[0]
+                const port = eventData[3];
+                if (state === "PLAYING") {
+                    const wsUrl = `http://localhost:${port}`;
+                    console.log(`Connecting to game on ${wsUrl}`);
+                    const websocket = new WebSocket(wsUrl);
+                    websocket.onopen = (event) => {
+                        console.log("Websocket opened with url: " + wsUrl);
+                        console.log("WS Data: " + String(event));
+                    };
+                    websocket.onerror = (event) => {
+                        console.log(`Websocket errored with error: ${event.error}, message: ${event.message}, target: ${JSON.stringify(event.target)}, type: ${event.type}`);
+                    }
+                }
                 console.log(`Client ${this.token} Received: ` + event.data);
             }
             es.onerror = (err: any) => {
                 console.error(`Client ${this.token} Error:`, err);
+                reject();
             };
             es.onopen = (event: any) => {
                 console.log("Event source opened: ", JSON.stringify(event));
@@ -57,7 +78,7 @@ class Client {
         })
     }
     async joinGame(id: number): Promise<Match> {
-        const response = await axios.post(`${URL}/join?id=${id}`, null,
+        const response = await axios.post(`${this.url}/join?id=${id}`, null,
             {
                 method: "POST",
                 headers: {
@@ -71,7 +92,7 @@ class Client {
         return response.data as Match
     }
     async getGame(id: number): Promise<Match> {
-        const response = await axios.get(`${URL}/match?id=${id}`,
+        const response = await axios.get(`${this.url}/match?id=${id}`,
             {
                 method: "GET",
                 headers: {
@@ -83,7 +104,7 @@ class Client {
         return response.data
     }
     async getGames(): Promise<Match[]> {
-        const response = await axios.get(`${URL}/matches`,
+        const response = await axios.get(`${this.url}/matches`,
             {
                 method: "GET",
                 headers: {
@@ -95,7 +116,7 @@ class Client {
         return response.data;
     }
     async readyUp(id: number): Promise<boolean> {
-        const response = await axios.post(`${URL}/ready?id=${id}`, null,
+        const response = await axios.post(`${this.url}/ready?id=${id}`, null,
             {
                 method: "POST",
                 headers: {
