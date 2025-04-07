@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::env;
 use std::net::Ipv4Addr;
+use std::ops::Index;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, sync::Arc};
 use tokio::process::Command;
@@ -150,20 +151,30 @@ async fn join_match_handler(matches: Matches, query: JoinQuery, user: User) -> R
     }
 }
 async fn cancel_match_handler(matches: Matches, port_pool: SharedNumberPool, query: JoinQuery, user: User) -> Result<impl Reply, Rejection> {
-    // release port back to pool
     let mut matches_write = matches.write().await;
-    // validate user in game and game not started
+    let port: u32;
+    let mut remove: bool = false;
     if let Some(match_data) = matches_write.get(&query.id) {
-        let match_data_read = match_data.read().await;
-        if !validate_user_in_game(&user.username, &match_data_read) || !validate_game_not_started(&match_data_read) {
-            // fix this, for multiplayer games shouldnt remove game unless players is 0
-        } else {
+        let mut match_data_write = match_data.write().await;
+        if !validate_user_in_game(&user.username, &match_data_write) || !validate_game_not_started(&match_data_write) {
             return Err(warp::reject::custom(InvalidInputError));
+        } else {
+            let index = match_data_write.players.iter().position(|t| *t == user.username).unwrap();
+            match_data_write.players.remove(index);
+            match_data_write.player_tokens.remove(index);
+            match_data_write.ready.remove(index);
+            port = match_data_write.port;
+            if match_data_write.players.len() == 0 {
+                remove = true;
+            }
         }
     } else {
         return Err(warp::reject::custom(NotFoundError));
     };
-    matches_write.remove(&query.id);
+    if remove {
+        matches_write.remove(&query.id);
+        port_pool.lock().await.release(port);
+    }
     return Ok(warp::reply::with_status("", StatusCode::OK));
 }
 

@@ -15,4 +15,23 @@ Instead of running the game, program will run this simulation program, which acc
 ## Steps to setup for prod
 1. cargo build --release
 2. chmod +x (all game executables)
-3.  // add more here
+3. create .env file and populate it
+4. sudo systemctl daemon-reload 
+5. sudo systemctl start warp-server 
+6. sudo systemctl enable warp-server
+
+
+## Useful tools
+- sudo lsof -i -P -n // see which processes are running and what ports they are running on (can be used to view game processes)
+- sudo systemctl status warp-server // restart server daemon
+- sudo lsof -i :8080 // what processes are running on port 8080
+
+## Pull new commit from github and run it
+1. git pull
+2. sudo systemctl stop warp-server
+3. cargo build --release
+4. sudo systemctl start warp-server
+5. sudo systemctl enable warp-server
+## Paths
+- executable ./target/release/rust-matchmaking-server
+- 

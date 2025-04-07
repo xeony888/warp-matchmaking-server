@@ -30,5 +30,6 @@ pub fn validate_user_in_game(username: &String, m: &Match) -> bool {
     return m.players.contains(username);
 }
 pub fn validate_game_not_started(m: &Match) -> bool {
+    // maybe change this?
     return m.players.len() != match_type_to_min_players(&m.game_type);
 }
