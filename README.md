@@ -27,11 +27,16 @@ Instead of running the game, program will run this simulation program, which acc
 - sudo lsof -i :8080 // what processes are running on port 8080
 
 ## Pull new commit from github and run it
+1. chmod +x ./reload.sh
+2. ./reload.sh // automatically performs all tasks below
+
+## reload flow
 1. git pull
 2. sudo systemctl stop warp-server
 3. cargo build --release
 4. sudo systemctl start warp-server
 5. sudo systemctl enable warp-server
+
 ## Paths
 - executable ./target/release/rust-matchmaking-server
 - 
