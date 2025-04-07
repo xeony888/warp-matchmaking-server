@@ -6,6 +6,6 @@ git pull origin main
 
 cargo build --release
 
-sudo systemctl restart your-service-name
+sudo systemctl restart warp-server
 
 echo "Deployment complete"
