@@ -31,6 +31,7 @@ Instead of running the game, program will run this simulation program, which acc
 2. ./reload.sh // automatically performs all tasks below
 
 ## reload flow
+0. git checkout -- . // deletes any local changes (should not be committing to git repo from aws)
 1. git pull
 2. sudo systemctl stop warp-server
 3. cargo build --release
