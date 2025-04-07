@@ -37,6 +37,7 @@ pub enum MatchState {
 pub struct Match {
     pub id: u32,
     pub players: Vec<String>,
+    #[serde(skip)]
     pub player_tokens: Vec<String>,
     pub ready: Vec<bool>,
     pub prize: u32,
@@ -205,6 +206,7 @@ async fn ready_handler(matches: Matches, query: JoinQuery, user: User) -> Result
                     }
                 }
                 Err(e) => {
+                    // error occurred, add back balance to both players
                     println!("Failed to run game process: {:?}", e);
                 }
             }
@@ -244,17 +246,25 @@ async fn run_game_process(
 ) -> Result<i32, std::io::Error> {
     // Example: Running a command as a process
     let path = game_type_to_path(game_type);
-    let formatted = format!("./builds/{path}");
+    let formatted = match env::var("ENVIRONMENT").ok() {
+        Some(_) => String::from("./target/release/game-simulation"),
+        None => format!("./builds/{}", path),
+    };
     println!(
         "Starting {} game at port {} for players {}, {} with tokens {}, {}",
         game_type, port, player_1, player_2, player_1_token, player_2_token
     );
     let mut child = Command::new(formatted)
-        .arg(format!("-port {}", port))
-        .arg(format!("-username1 {}", player_1))
-        .arg(format!("-player1token {}", player_1_token))
-        .arg(format!("-username2 {}", player_2))
-        .arg(format!("-player2token {}", player_2_token))
+        .arg("-port")
+        .arg(port.to_string())
+        .arg("-username1")
+        .arg(player_1)
+        .arg("-player1token")
+        .arg(player_1_token)
+        .arg("-username2")
+        .arg(player_2)
+        .arg("-player2token")
+        .arg(player_2_token)
         .spawn()?;
     let exit_status = child.wait().await?;
     Ok(exit_status.code().unwrap_or(1000)) // Return the exit code, or -1 on error

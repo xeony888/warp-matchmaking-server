@@ -2,12 +2,20 @@
 name = "rust-matchmaking-server"
 version = "0.1.0"
 edition = "2021"
+default-run = "rust-matchmaking-server"
 
 [dependencies]
 async-stream = "0.3.6"
 dotenvy = "0.15.7"
 futures = "0.3.31"
+futures-util = "0.3.31"
 getrandom = "0.3.2"
+rand = "0.9.0"
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.44.1", features = ["full"] }
+tokio-tungstenite = "0.26.2"
 warp = { version = "0.3.7", features = ["tls"] }
+
+[[bin]]
+name = "game-simulation"
+path = "game-simulation/src/main.rs"
