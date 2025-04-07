@@ -11,3 +11,8 @@ Instead of running the game, program will run this simulation program, which acc
 2. npm i
 3. cargo run
 4. (in new terminal) npm run test
+
+## Steps to setup for prod
+1. cargo build --release
+2. chmod +x (all game executables)
+3.  
