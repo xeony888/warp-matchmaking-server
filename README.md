@@ -15,4 +15,4 @@ Instead of running the game, program will run this simulation program, which acc
 ## Steps to setup for prod
 1. cargo build --release
 2. chmod +x (all game executables)
-3.  
+3.  // add more here

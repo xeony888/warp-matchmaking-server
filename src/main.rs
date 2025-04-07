@@ -197,6 +197,7 @@ async fn ready_handler(matches: Matches, query: JoinQuery, user: User) -> Result
             let result = run_game_process(&game_type, port, &players[0], &player_tokens[0], &players[1], &player_tokens[1]).await;
             match result {
                 Ok(exit_code) => {
+                    println!("Game process exited with code: {}", exit_code);
                     if exit_code == 1001 {
                         // player 1 won
                     } else if exit_code == 1002 {
