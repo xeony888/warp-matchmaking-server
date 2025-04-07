@@ -52,6 +52,9 @@ type Matches = Arc<RwLock<HashMap<u32, Arc<RwLock<Match>>>>>;
 
 const GAME_EXPIRY_TIME_SECS: u64 = 60 * 20;
 
+async fn health_handler() -> Result<impl Reply, Rejection> {
+    Ok(warp::reply::with_status("Health check successful", StatusCode::OK))
+}
 async fn get_matches_handler(matches: Matches, user: User) -> Result<impl Reply, Rejection> {
     let matches_read = matches.read().await;
     let mut matches_list = Vec::new();
@@ -362,6 +365,7 @@ async fn main() {
         .and(warp::query::<JoinQuery>())
         .and_then(match_ready_updates);
     let end_match_route = warp::path("end_match").and(warp::post()).and_then(end_match_handler);
+    let health_route = warp::path("health").and(warp::get()).and_then(health_handler);
     let routes = matches_route
         .or(match_route)
         .or(create_match_route)
@@ -370,6 +374,7 @@ async fn main() {
         .or(end_match_route)
         .or(ready_route)
         .or(match_updates_route)
+        .or(health_route)
         .recover(handle_rejection);
 
     let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
